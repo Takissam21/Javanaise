@@ -1,0 +1,14 @@
+# Fichiers compilés Java
+*.class
+bin/
+
+# macOS
+.DS_Store
+__MACOSX/
+
+# Windows
+*:Zone.Identifier
+
+# IDE
+.idea/
+.vscode/
