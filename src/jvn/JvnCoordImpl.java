@@ -10,7 +10,13 @@ package jvn;
 
 import java.rmi.server.UnicastRemoteObject;
 import java.io.Serializable;
-
+import java.rmi.Naming;
+import java.rmi.registry.LocateRegistry;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
+import java.util.HashSet;
+import java.util.Iterator;
 
 public class JvnCoordImpl 	
               extends UnicastRemoteObject 
@@ -21,6 +27,21 @@ public class JvnCoordImpl
 	 * 
 	 */
 	private static final long serialVersionUID = 1L;
+  // Compteur permettant de generer des identifiants uniques
+  private int objectIdCounter = 0;
+  // Nom global -> objet JVN
+  private Map<String, JvnObject> objectsByName = new HashMap<>();
+
+  // ID -> objet JVN
+  private Map<Integer, JvnObject> objectsById = new HashMap<>();
+  
+  // ID de l'objet -> serveur qui possede le droit d'ecriture
+  private Map<Integer, JvnRemoteServer> writers = new HashMap<>();
+
+  // ID de l'objet -> serveurs qui possedent un droit de lecture
+  private Map<Integer, Set<JvnRemoteServer>> readers = new HashMap<>();
+
+  private Map<Integer, Serializable> objectStates = new HashMap<>();
 
 /**
   * Default constructor
@@ -37,8 +58,8 @@ public class JvnCoordImpl
   **/
   public int jvnGetObjectId()
   throws java.rmi.RemoteException,jvn.JvnException {
-    // to be completed 
-    return 0;
+    
+    return objectIdCounter++;
   }
   
   /**
@@ -49,9 +70,13 @@ public class JvnCoordImpl
   * @param js  : the remote reference of the JVNServer
   * @throws java.rmi.RemoteException,JvnException
   **/
-  public void jvnRegisterObject(String jon, JvnObject jo, JvnRemoteServer js)
+  public synchronized void jvnRegisterObject(String jon, JvnObject jo, JvnRemoteServer js)
   throws java.rmi.RemoteException,jvn.JvnException{
-    // to be completed 
+    objectsByName.put(jon, jo);
+    objectsById.put(jo.jvnGetObjectId(), jo);
+    writers.put(jo.jvnGetObjectId(), js);
+    readers.put(jo.jvnGetObjectId(), new HashSet<>());
+    objectStates.put(jo.jvnGetObjectId(), jo.jvnGetObjectState());
   }
   
   /**
@@ -60,10 +85,10 @@ public class JvnCoordImpl
   * @param js : the remote reference of the JVNServer
   * @throws java.rmi.RemoteException,JvnException
   **/
-  public JvnObject jvnLookupObject(String jon, JvnRemoteServer js)
+  public synchronized JvnObject jvnLookupObject(String jon, JvnRemoteServer js)
   throws java.rmi.RemoteException,jvn.JvnException{
-    // to be completed 
-    return null;
+    
+    return objectsByName.get(jon);
   }
   
   /**
@@ -75,8 +100,17 @@ public class JvnCoordImpl
   **/
    public Serializable jvnLockRead(int joi, JvnRemoteServer js)
    throws java.rmi.RemoteException, JvnException{
-    // to be completed
-    return null;
+    JvnRemoteServer writer = writers.get(joi);
+    if (writer == null) {
+        readers.get(joi).add(js);
+        return objectStates.get(joi);
+    }
+    Serializable state = writer.jvnInvalidateWriterForReader(joi);
+    objectStates.put(joi, state);
+    writers.remove(joi);
+    readers.get(joi).add(writer);
+    readers.get(joi).add(js);
+    return state;
    }
 
   /**
@@ -88,8 +122,19 @@ public class JvnCoordImpl
   **/
    public Serializable jvnLockWrite(int joi, JvnRemoteServer js)
    throws java.rmi.RemoteException, JvnException{
-    // to be completed
-    return null;
+    JvnRemoteServer writer = writers.get(joi);
+    if (writer != null && !writer.equals(js)) {
+        Serializable state = writer.jvnInvalidateWriter(joi);
+        objectStates.put(joi, state);
+    }
+    for (JvnRemoteServer reader : readers.get(joi)) {
+        if (!reader.equals(js)) {
+            reader.jvnInvalidateReader(joi);
+        }
+    }
+    readers.get(joi).clear();
+    writers.put(joi, js);
+    return objectStates.get(joi);
    }
 
 	/**
@@ -99,7 +144,46 @@ public class JvnCoordImpl
 	**/
     public void jvnTerminate(JvnRemoteServer js)
 	 throws java.rmi.RemoteException, JvnException {
-	 // to be completed
+      for (Set<JvnRemoteServer> readerSet : readers.values()) {
+          readerSet.remove(js);
+      }
+
+      Iterator<Map.Entry<Integer, JvnRemoteServer>> iterator =
+              writers.entrySet().iterator();
+
+      while (iterator.hasNext()) {
+          Map.Entry<Integer, JvnRemoteServer> entry = iterator.next();
+
+          Integer joi = entry.getKey();
+          JvnRemoteServer writer = entry.getValue();
+
+          if (writer.equals(js)) {
+              Serializable state = writer.jvnInvalidateWriter(joi);
+              objectStates.put(joi, state);
+
+              iterator.remove();
+          }
+      }
+    }
+
+
+    //main() qui cree le coordinateur et l enregistre dans le registre RMI sous le nom JvnCoord
+    public static void main(String[] args) {
+        try {
+            // Demarre le registre RMI sur le port standard 1099
+            LocateRegistry.createRegistry(1099);
+
+            // Cree le coordinateur
+            JvnCoordImpl coord = new JvnCoordImpl();
+
+            // Enregistre le coordinateur sous le nom "JvnCoord"
+            Naming.rebind("JvnCoord", coord);
+
+            System.out.println("Coordinateur JVN demarre.");
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 }
 
