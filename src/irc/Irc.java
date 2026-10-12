@@ -19,8 +19,7 @@ public class Irc {
 	public TextArea		text;
 	public TextField	data;
 	Frame 			frame;
-	JvnObject       sentence;
-
+	SentenceItf sentence;
 
   /**
   * main method
@@ -54,8 +53,8 @@ public class Irc {
    * IRC Constructor
    @param jo the JVN object representing the Chat
    **/
-	public Irc(JvnObject jo) {
-		sentence = jo;
+	public Irc(JvnObject jo) throws JvnException  {
+		sentence = (SentenceItf) JvnProxy.newInstance(jo);
 		frame=new Frame();
 		frame.setLayout(new GridLayout(1,1));
 		text=new TextArea(10,60);
@@ -92,19 +91,12 @@ public class Irc {
   **/
 	public void actionPerformed (ActionEvent e) {
 	 try {
-		// lock the object in read mode
-		irc.sentence.jvnLockRead();
-		
-		// invoke the method
-		String s = ((Sentence)(irc.sentence.jvnGetObjectState())).read();
-		
-		// unlock the object
-		irc.sentence.jvnUnLock();
-		
+		String s = irc.sentence.read();
+
 		// display the read value
 		irc.data.setText(s);
 		irc.text.append(s+"\n");
-	   } catch (JvnException je) {
+	   } catch (Exception je) {
 		   System.out.println("IRC problem : " + je.getMessage());
 	   }
 	}
@@ -127,16 +119,9 @@ public class Irc {
 	   try {	
 		// get the value to be written from the buffer
     String s = irc.data.getText();
-        	
-    // lock the object in write mode
-		irc.sentence.jvnLockWrite();
-		
-		// invoke the method
-		((Sentence)(irc.sentence.jvnGetObjectState())).write(s);
-		
-		// unlock the object
-		irc.sentence.jvnUnLock();
-	 } catch (JvnException je) {
+        
+		irc.sentence.write(s);
+	 } catch (Exception je) {
 		   System.out.println("IRC problem  : " + je.getMessage());
 	 }
 	}
