@@ -24,6 +24,9 @@ public class JvnObjectImpl implements JvnObject {
     // Etat actuel du verrou
     private LockState lockState;
 
+    private boolean writeRequestPending = false;
+    private boolean readRequestPending = false;
+
     //une reference vers le serveur local 
     //transient = quand tu serialises cet objet, n'envoie pas cet attribut.
     private transient JvnLocalServer localServer;
@@ -65,6 +68,7 @@ public class JvnObjectImpl implements JvnObject {
                     // Aucun verrou en cache :
                     // il faut demander un verrou de lecture au serveur
                     needRemote = true;
+                    readRequestPending = true;
                     break;
 
                 case RC:
@@ -84,11 +88,25 @@ public class JvnObjectImpl implements JvnObject {
         }
 
         if (needRemote) {
-            Serializable state = localServer.jvnLockRead(objectId);
+            try {
+                Serializable state = localServer.jvnLockRead(objectId);
 
-            synchronized (this) {
-                objectState = state;
-                lockState = LockState.R;
+                synchronized (this) {
+                    objectState = state;
+                    lockState = LockState.R;
+
+                    readRequestPending = false;
+                    notifyAll();
+                }
+
+            } catch (JvnException e) {
+
+                synchronized (this) {
+                    readRequestPending = false;
+                    notifyAll();
+                }
+
+                throw e;
             }
         }
 
@@ -110,18 +128,34 @@ public class JvnObjectImpl implements JvnObject {
                 case RC:
                     // Je dois demander WRITE au coordinateur
                     needRemote = true;
+                    writeRequestPending = true;
                     break;
 
                 default:
                     break;
             }
         }
-        if (needRemote) {
-            Serializable state = localServer.jvnLockWrite(objectId);
 
-            synchronized (this) {
-                objectState = state;
-                lockState = LockState.W;
+        if (needRemote) {
+            try {
+                Serializable state = localServer.jvnLockWrite(objectId);
+
+                synchronized (this) {
+                    objectState = state;
+                    lockState = LockState.W;
+
+                    writeRequestPending = false;
+                    notifyAll();
+                }
+
+            } catch (JvnException e) {
+
+                synchronized (this) {
+                    writeRequestPending = false;
+                    notifyAll();
+                }
+
+                throw e;
             }
         }
     }
@@ -155,7 +189,7 @@ public class JvnObjectImpl implements JvnObject {
     @Override
     public synchronized void jvnInvalidateReader() throws JvnException {
 
-        while (lockState == LockState.R) {
+        while (readRequestPending || lockState == LockState.R) {
             try {
                 wait();
             } catch (InterruptedException e) {
@@ -170,7 +204,9 @@ public class JvnObjectImpl implements JvnObject {
     @Override
     public synchronized Serializable jvnInvalidateWriter() throws JvnException {
 
-        while (lockState == LockState.W || lockState == LockState.RWC) {
+        while (writeRequestPending
+                || lockState == LockState.W
+                || lockState == LockState.RWC) {
             try {
                 wait();
             } catch (InterruptedException e) {
@@ -190,7 +226,7 @@ public class JvnObjectImpl implements JvnObject {
     public synchronized Serializable jvnInvalidateWriterForReader()
             throws JvnException {
 
-        while (lockState == LockState.W) {
+        while (writeRequestPending || lockState == LockState.W) {
             try {
                 wait();
             } catch (InterruptedException e) {

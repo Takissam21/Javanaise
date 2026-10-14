@@ -1,9 +1,8 @@
 package irc;
 
-import java.io.Serializable;
-
 import jvn.JvnObject;
 import jvn.JvnServerImpl;
+import jvn.JvnProxy;
 
 public class CounterBurstTest {
 
@@ -21,31 +20,17 @@ public class CounterBurstTest {
                 return;
             }
 
+            CounterItf counter = (CounterItf) JvnProxy.newInstance(jo);
+
             long start = System.currentTimeMillis();
 
             for (int i = 0; i < NB_INCREMENT; i++) {
-
-                jo.jvnLockWrite();
-
-                Counter counter =
-                    (Counter) jo.jvnGetObjectState();
-
                 counter.increment();
-
-                jo.jvnUnLock();
             }
 
             long end = System.currentTimeMillis();
 
-            // Lecture de la valeur observée à la fin de ce client
-            jo.jvnLockRead();
-
-            Counter counter =
-                (Counter) jo.jvnGetObjectState();
-
             int value = counter.getValue();
-
-            jo.jvnUnLock();
 
             System.out.println(
                 NB_INCREMENT

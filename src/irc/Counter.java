@@ -2,7 +2,7 @@ package irc;
 
 import java.io.Serializable;
 
-public class Counter implements Serializable {
+public class Counter implements CounterItf, Serializable {
 
     private static final long serialVersionUID = 1L;
 
