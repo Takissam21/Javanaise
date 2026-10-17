@@ -33,6 +33,8 @@ public class JvnServerImpl
 	// lors des demandes d'invalidation envoyees par le coordinateur.
 	private Map<Integer, JvnObject> localObjects = new HashMap<>();
 
+	private static final int MAX_CACHE_SIZE = 3;
+
   /**
   * Default constructor
   * @throws JvnException
@@ -87,6 +89,9 @@ public class JvnServerImpl
 
 			localObjects.put(id, jo);
 
+			// Vérifie si le cache dépasse la taille maximale
+			checkCacheSize(id);
+
 			return jo;
 
 		} catch (java.rmi.RemoteException e) {
@@ -132,6 +137,9 @@ public class JvnServerImpl
 				obj.resetLockState();
 
 				localObjects.put(jo.jvnGetObjectId(), jo);
+
+				// Vérifie si le cache dépasse la taille maximale
+				checkCacheSize(jo.jvnGetObjectId());
 			}
 
 			return jo;
@@ -177,6 +185,73 @@ public class JvnServerImpl
 			throw new JvnException(
 				"Erreur RMI lors de la demande du verrou d'ecriture"
 			);
+		}
+	}
+
+	@Override
+	public void jvnFlushObject(int joi) throws JvnException {
+
+		JvnObject jo = localObjects.get(joi);
+
+		// L'objet n'est déjà plus dans le cache local
+		if (jo == null) {
+			return;
+		}
+
+		// Attend que personne n'utilise l'objet et récupère son état
+		Serializable state = jo.jvnPrepareFlush();
+
+		try {
+			// Prévenir le coordinateur avant de supprimer l'objet localement
+			jvnCoord.jvnFlushObject(joi, this, state);
+
+			// Le coordinateur a accepté le flush
+			jo.jvnConfirmFlush();
+
+			// On peut maintenant retirer l'objet du cache local
+			localObjects.remove(joi);
+
+		} catch (java.rmi.RemoteException e) {
+
+			// Le coordinateur n'a pas reçu le flush :
+			// l'objet doit rester utilisable localement
+			jo.jvnCancelFlush();
+
+			throw new JvnException(
+				"Erreur RMI pendant le flush de l'objet"
+			);
+
+		} catch (JvnException e) {
+
+			// Même principe si le coordinateur refuse/échoue côté JVN
+			jo.jvnCancelFlush();
+
+			throw e;
+		}
+	}
+
+	private void checkCacheSize(int protectedId) throws JvnException {
+
+		while (localObjects.size() > MAX_CACHE_SIZE) {
+
+			Integer victimId = null;
+
+			for (Integer id : localObjects.keySet()) {
+				if (id != protectedId) {
+					victimId = id;
+					break;
+				}
+			}
+
+			if (victimId == null) {
+				return;
+			}
+
+			System.out.println(
+				"Cache sature : flush automatique de l'objet " + victimId
+			);
+
+			jvnFlushObject(victimId);
 		}
 	}
 

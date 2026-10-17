@@ -105,12 +105,28 @@ public class JvnCoordImpl
         readers.get(joi).add(js);
         return objectStates.get(joi);
     }
-    Serializable state = writer.jvnInvalidateWriterForReader(joi);
-    objectStates.put(joi, state);
-    writers.remove(joi);
-    readers.get(joi).add(writer);
-    readers.get(joi).add(js);
-    return state;
+    try {
+        Serializable state = writer.jvnInvalidateWriterForReader(joi);
+
+        objectStates.put(joi, state);
+        writers.remove(joi);
+
+        readers.get(joi).add(writer);
+        readers.get(joi).add(js);
+
+        return state;
+
+    } catch (java.rmi.RemoteException e) {
+
+        System.out.println(
+            "Client writer en panne detecte pour l'objet " + joi
+        );
+
+        writers.remove(joi);
+        readers.get(joi).add(js);
+
+        return objectStates.get(joi);
+    }
    }
 
   /**
@@ -123,13 +139,30 @@ public class JvnCoordImpl
    public synchronized Serializable jvnLockWrite(int joi, JvnRemoteServer js)
    throws java.rmi.RemoteException, JvnException{
     JvnRemoteServer writer = writers.get(joi);
+
     if (writer != null && !writer.equals(js)) {
-        Serializable state = writer.jvnInvalidateWriter(joi);
-        objectStates.put(joi, state);
+        try {
+            Serializable state = writer.jvnInvalidateWriter(joi);
+            objectStates.put(joi, state);
+
+        } catch (java.rmi.RemoteException e) {
+            System.out.println(
+                "Client writer en panne detecte pour l'objet " + joi
+            );
+
+            writers.remove(joi);
+        }
     }
+
     for (JvnRemoteServer reader : readers.get(joi)) {
         if (!reader.equals(js)) {
-            reader.jvnInvalidateReader(joi);
+            try {
+                reader.jvnInvalidateReader(joi);
+            } catch (java.rmi.RemoteException e) {
+                System.out.println(
+                    "Client lecteur en panne detecte pour l'objet " + joi
+                );
+            }
         }
     }
     readers.get(joi).clear();
@@ -157,12 +190,19 @@ public class JvnCoordImpl
           Integer joi = entry.getKey();
           JvnRemoteServer writer = entry.getValue();
 
-          if (writer.equals(js)) {
-              Serializable state = writer.jvnInvalidateWriter(joi);
-              objectStates.put(joi, state);
+        if (writer.equals(js)) {
+            try {
+                Serializable state = writer.jvnInvalidateWriter(joi);
+                objectStates.put(joi, state);
 
-              iterator.remove();
-          }
+            } catch (java.rmi.RemoteException e) {
+                System.out.println(
+                    "Client writer deja en panne pour l'objet " + joi
+                );
+            }
+
+            iterator.remove();
+        }
       }
     }
 
@@ -185,6 +225,29 @@ public class JvnCoordImpl
             e.printStackTrace();
         }
     }
+
+    public synchronized void jvnFlushObject(
+            int joi,
+            JvnRemoteServer js,
+            Serializable state)
+            throws java.rmi.RemoteException, JvnException {
+
+        // Si ce client était lecteur, on retire son droit de lecture
+        Set<JvnRemoteServer> readerSet = readers.get(joi);
+
+        if (readerSet != null) {
+            readerSet.remove(js);
+        }
+
+        // Si ce client était writer, sa copie est la plus récente
+        JvnRemoteServer writer = writers.get(joi);
+
+        if (writer != null && writer.equals(js)) {
+            objectStates.put(joi, state);
+            writers.remove(joi);
+        }
+    }
+    
 }
 
  

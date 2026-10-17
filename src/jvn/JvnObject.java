@@ -75,5 +75,26 @@ public interface JvnObject extends Serializable {
 	* @throws JvnException
 	**/
    public Serializable jvnInvalidateWriterForReader()
-	 throws jvn.JvnException;	
+	 throws jvn.JvnException;
+	 
+	/**
+	 * Prepare the object to be removed from the local cache.
+	 * Waits until the object is no longer used locally.
+	 * @return the current object state
+	 * @throws JvnException
+	 */
+	public Serializable jvnPrepareFlush()
+	throws jvn.JvnException;
+
+	/**
+	 * Confirm that the object has been removed from the local cache.
+	 */
+	public void jvnConfirmFlush()
+	throws jvn.JvnException;
+
+	/**
+	 * Cancel a flush operation.
+	 */
+	public void jvnCancelFlush()
+	throws jvn.JvnException;
 }

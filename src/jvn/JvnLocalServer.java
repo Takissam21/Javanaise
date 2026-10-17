@@ -62,7 +62,14 @@ public interface JvnLocalServer {
    public Serializable jvnLockWrite(int joi)
 	 throws JvnException;
 
-         
+	/**
+	 * Remove an object from the local JVN cache
+	 * @param joi : the JVN object identification
+	 * @throws JvnException
+	 */
+	public void jvnFlushObject(int joi)
+	throws JvnException;
+
    /**
     * The JVN service is not used anymore by the application
     * @throws JvnException
