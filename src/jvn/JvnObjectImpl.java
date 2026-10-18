@@ -5,6 +5,7 @@ import java.io.Serializable;
 public class JvnObjectImpl implements JvnObject {
 
     private static final long serialVersionUID = 1L; // a comprendre
+    private boolean writeRequestPending = false;
 
     private enum LockState {
         NL,
@@ -110,6 +111,7 @@ public class JvnObjectImpl implements JvnObject {
                 case RC:
                     // Je dois demander WRITE au coordinateur
                     needRemote = true;
+                    writeRequestPending = true;
                     break;
 
                 default:
@@ -117,11 +119,30 @@ public class JvnObjectImpl implements JvnObject {
             }
         }
         if (needRemote) {
-            Serializable state = localServer.jvnLockWrite(objectId);
 
-            synchronized (this) {
-                objectState = state;
-                lockState = LockState.W;
+            try {
+
+                Serializable state =
+                    localServer.jvnLockWrite(objectId);
+
+                synchronized (this) {
+
+                    objectState = state;
+                    lockState = LockState.W;
+
+                    writeRequestPending = false;
+
+                    notifyAll();
+                }
+
+            } catch (JvnException e) {
+
+                synchronized (this) {
+                    writeRequestPending = false;
+                    notifyAll();
+                }
+
+                throw e;
             }
         }
     }
@@ -170,7 +191,8 @@ public class JvnObjectImpl implements JvnObject {
     @Override
     public synchronized Serializable jvnInvalidateWriter() throws JvnException {
 
-        while (lockState == LockState.W || lockState == LockState.RWC) {
+        while ( writeRequestPending || lockState == LockState.W || lockState == LockState.RWC) 
+        {
             try {
                 wait();
             } catch (InterruptedException e) {
