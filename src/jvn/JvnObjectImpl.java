@@ -26,6 +26,8 @@ public class JvnObjectImpl implements JvnObject {
 
     private boolean writeRequestPending = false;
     private boolean readRequestPending = false;
+    //activeReaders = combien de threads lisent actuellement
+    //activeWriter = est-ce qu un thread ecrit actuellement ?
     private int activeReaders = 0;
     private boolean activeWriter = false;
 
